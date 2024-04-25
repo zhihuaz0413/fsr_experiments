@@ -38,14 +38,10 @@ planning_interface::MotionPlanResponse getShortestSolution(
                                                   [](const planning_interface::MotionPlanResponse& solution_a,
                                                     const planning_interface::MotionPlanResponse& solution_b) {
                                                     // If both solutions were successful, check which path is shorter
-                                                    if (solution_a && solution_b)
-                                                    {
+                                                    if (solution_a && solution_b) {
                                                       return robot_trajectory::pathLength(*solution_a.trajectory) <
                                                             robot_trajectory::pathLength(*solution_b.trajectory);
-                                                    }
-                                                    // If only solution a is successful, return a
-                                                    else if (solution_a)
-                                                    {
+                                                    } else if (solution_a) {
                                                       return true;
                                                     }
                                                     // Else return solution b, either because it is successful or not
@@ -94,7 +90,7 @@ class fsr_experiments {
     }
   }
 
-    bool Move2JointGoal(double const joint1, double const joint2, double const joint3,
+  bool Move2JointGoal(double const joint1, double const joint2, double const joint3,
                     double const joint4, double const joint5, double const joint6,
                     double const joint7) {
     auto robot_goal_state = planning_components_ptr_->getStartState();
