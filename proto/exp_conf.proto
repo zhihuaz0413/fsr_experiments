@@ -1,0 +1,32 @@
+syntax = "proto3";
+package fsr_experiments;
+
+message ObjectConf {
+  string object_name = 1;
+  int32 repeat_num = 2;
+  repeated string actions = 3;
+  double min_depth = 4;
+  double max_depth = 5;
+  double min_angle = 6;
+  double max_angle = 7;
+  double min_duration = 8;
+  double max_duration = 9;
+  double min_slip_amp = 10;
+  double max_slip_amp = 11;
+  double slip_angle = 12;
+  int32 sample_rate = 13;
+}
+
+message ExpGroupConf {
+  string group_name = 1;
+  int32 group_id = 2;
+  double home_height = 3;
+  double start_height = 4;
+  repeated ObjectConf object_conf = 5;
+}
+
+message ExpConf {
+  string description = 1;
+  repeated ExpGroupConf exp_group = 2;
+  string output_dir = 3;
+}

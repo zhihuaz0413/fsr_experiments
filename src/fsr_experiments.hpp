@@ -3,13 +3,30 @@
 #include <rclcpp/rclcpp.hpp>
 #include <memory>
 #include <vector>
+#include <chrono>
+#include <cstdlib>
+#include <numeric>
+#include <filesystem>
+#include <fstream>
+#include <fcntl.h>
 
 #include <moveit/moveit_cpp/moveit_cpp.h>
 #include <moveit/moveit_cpp/planning_component.h>
+#include <ament_index_cpp/get_package_share_directory.hpp>
+#include <google/protobuf/text_format.h>
+#include <google/protobuf/io/zero_copy_stream_impl.h>
 
-#include <geometry_msgs/msg/point_stamped.h>
+#include "geometry_msgs/msg/point_stamped.h"
+#include "geometry_msgs/msg/twist.h"
 
 #include <moveit_visual_tools/moveit_visual_tools.h>
+#include "std_srvs/srv/empty.hpp"
+#include "fsr_interfaces/msg/ni_force.hpp"
+#include "fsr_interfaces/srv/trigger.hpp"
+#include "fsr_interfaces/srv/record_force.hpp"
+#include "controller_manager_msgs/srv/switch_controller.hpp"
+#include "exp_action.hpp"
+#include "exp_conf.pb.h"
 
 namespace rvt = rviz_visual_tools;
 
@@ -38,10 +55,14 @@ planning_interface::MotionPlanResponse getShortestSolution(
                                                   [](const planning_interface::MotionPlanResponse& solution_a,
                                                     const planning_interface::MotionPlanResponse& solution_b) {
                                                     // If both solutions were successful, check which path is shorter
-                                                    if (solution_a && solution_b) {
+                                                    if (solution_a && solution_b)
+                                                    {
                                                       return robot_trajectory::pathLength(*solution_a.trajectory) <
                                                             robot_trajectory::pathLength(*solution_b.trajectory);
-                                                    } else if (solution_a) {
+                                                    }
+                                                    // If only solution a is successful, return a
+                                                    else if (solution_a)
+                                                    {
                                                       return true;
                                                     }
                                                     // Else return solution b, either because it is successful or not
@@ -62,6 +83,7 @@ class fsr_experiments {
     , visual_tools_{ node, "base_link", "fsr_experiments", moveit_cpp_ptr_->getPlanningSceneMonitorNonConst() } {
     // rclcpp::sleep_for(std::chrono::seconds(1));
     RCLCPP_INFO(LOGGER, "Starting FSR experiments...");
+    Initialize();
     moveit_cpp_ptr_->getPlanningSceneMonitorNonConst()->providePlanningSceneService();
     visual_tools_.deleteAllMarkers();
     visual_tools_.loadRemoteControl();
@@ -69,30 +91,158 @@ class fsr_experiments {
     text_pose.translation().z() = 1.75;
     visual_tools_.publishText(text_pose, "Starting fsr experiments", rvt::WHITE, rvt::XLARGE);
     visual_tools_.trigger();
+    package_share_directory_ = ament_index_cpp::get_package_share_directory("fsr_experiments") + "/config/";
   }
   virtual ~fsr_experiments() = default;
-  
-  void StartExperiments(const std::vector<std::unique_ptr<geometry_msgs::msg::PoseStamped>>& targets) {
+
+  void Execute(const std::string& conf) { // "/config/exp_conf.pb.txt"
+    std::string conf_file = package_share_directory_ + conf;
+    ExpConf exp_conf;
+    int fd = open(conf_file.c_str(), O_RDONLY);
+    if(fd >= 0) {
+      google::protobuf::io::FileInputStream fileInput(fd);
+      fileInput.SetCloseOnDelete(true);
+      google::protobuf::TextFormat::Parse(&fileInput, &exp_conf);
+      exp_conf.PrintDebugString();
+    }
+    else {
+      RCLCPP_ERROR(LOGGER, "Failed to open file: %s", conf_file.c_str());
+      return;
+    }
     VisualizePrompt();
-    for (const auto& target_pose : targets) {
-      if (target_pose == nullptr) {
-        RCLCPP_ERROR(LOGGER, "Invalid pose: NULL!");
-        continue;
+
+    RCLCPP_INFO(LOGGER, "Start FSR Experiment : %s", exp_conf.description().c_str());
+    for (size_t i = 0; i < static_cast<size_t>(exp_conf.exp_group().size()); i++) {
+      auto& exp_group = exp_conf.exp_group(i);
+      output_dir_ = exp_conf.output_dir() + exp_group.group_name() + "/";
+      if (!std::filesystem::exists(output_dir_)) {
+        std::filesystem::create_directories(output_dir_);
       }
-      planning_components_ptr_->setGoal((*target_pose), "end_effector_link");
-      if (!Plan2Exe()) {
-        RCLCPP_ERROR(LOGGER, "Failed to move to point, break!");
-        break;
+      for (size_t j = 0; j < static_cast<size_t>(exp_group.object_conf().size()); j++) {
+        const auto& object_conf = exp_group.object_conf(j);
+        SetupHome(exp_group.home_height());
+        VisualizePrompt();
+        RCLCPP_INFO(LOGGER, "Start Experiment : %s", object_conf.object_name().c_str());
+        int repeat_num = object_conf.repeat_num();
+        exp_action_ = std::make_unique<ExpAction>(object_conf);
+        for (int k = 0; k < repeat_num; k++) {
+          SetupHome(exp_group.start_height());
+          VisualizePrompt();
+          RCLCPP_INFO(LOGGER, "Start Experiment : %s, repeat: %d/%d ", object_conf.object_name().c_str(), k+1, repeat_num);
+          std::string label = object_conf.object_name() + "_" + std::to_string(k);
+          Calibrate(label);
+          contaction_flag_ = false;
+          SwitchController({"twist_controller"}, {"joint_trajectory_controller"});
+          Move2Contact();
+          RCLCPP_INFO(LOGGER, "Connection established! ******** Ready for actions ********");
+          // VisualizePrompt();
+          ExecuteAction(object_conf, k);
+          RCLCPP_INFO(LOGGER, "Experiment finished! ******** Ready for next ********");
+          SwitchController({"joint_trajectory_controller"}, {"twist_controller"});
+          StopRecording(label);
+        }
       }
-      // Visualize the goal pose in Rviz
-      visual_tools_.publishAxisLabeled(target_pose->pose, "target_pose");
-      VisualizePrompt();
+    }
+  }
+
+ private:
+   bool Initialize() {
+    RCLCPP_INFO(LOGGER, "Initialize MoveItCpp");
+    force_callback_group_ = node_->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+    fsr_callback_group_ = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+    controller_callback_group_ = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+    record_force_callback_group_ = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+
+    rclcpp::SubscriptionOptions options;
+    options.callback_group = force_callback_group_;
+
+    force_subscription_ = node_->create_subscription<fsr_interfaces::msg::NiForce>(
+      "ni_force", rclcpp::SensorDataQoS(), std::bind(&fsr_experiments::NiForceCallBack, this, std::placeholders::_1), options);
+
+    fsr_client_ptr_ = node_->create_client<fsr_interfaces::srv::Trigger>("trigger_recorder", rmw_qos_profile_services_default,
+                                                                fsr_callback_group_);
+
+    record_force_client_ptr_ = node_->create_client<fsr_interfaces::srv::RecordForce>("record_force", rmw_qos_profile_services_default,
+                                                                record_force_callback_group_);                                                        
+    controller_manager_ptr_ = node_->create_client<controller_manager_msgs::srv::SwitchController>("controller_manager/switch_controller",
+                                                                rmw_qos_profile_services_default, controller_callback_group_);
+
+    twist_publisher_ = node_->create_publisher<geometry_msgs::msg::Twist>("twist_controller/commands", 2);
+
+    return true;
+  }
+
+  void ExecuteAction(const ObjectConf& conf, int idx) const {
+    if (exp_action_ == nullptr) {
+      RCLCPP_ERROR(LOGGER, "Invalid ExpAction! *****************************");
+      return;
+    }
+    for (size_t i = 0; i < static_cast<size_t>(conf.actions().size()); i++) {
+      RCLCPP_INFO(LOGGER, "Start Action : %s", conf.actions(i).c_str());
+      double dt = 1.0 / conf.sample_rate();
+      std::vector<std::unique_ptr<geometry_msgs::msg::Twist>> twist;
+      if (conf.actions(i) == "pressing") {
+        if (exp_action_->GeneratePressingTraj(twist, idx)) {
+          for (const auto& twist_msg : twist) {
+            twist_publisher_->publish(*twist_msg);
+            int ms_dt = dt * 1000;
+            rclcpp::sleep_for(std::chrono::milliseconds(ms_dt));
+          }
+        }
+      } else if (conf.actions(i) == "precision") {
+        if (exp_action_->GeneratePrecisionTraj(twist, idx)) {
+          for (const auto& twist_msg : twist) {
+            twist_publisher_->publish(*twist_msg);
+            int ms_dt = dt * 1000;
+            rclcpp::sleep_for(std::chrono::milliseconds(ms_dt));
+          }
+        }
+      } else if (conf.actions(i)  == "slipping") {
+        if (exp_action_->GenerateSlipperyTraj(twist, idx)) {
+          for (const auto& twist_msg : twist) {
+            twist_publisher_->publish(*twist_msg);
+            int ms_dt = dt * 1000;
+            rclcpp::sleep_for(std::chrono::milliseconds(ms_dt));
+          }
+        }
+      }
+    }
+  }
+
+  void SetupHome (double height = 0.25) {
+    //fsr_exp.Move2JointGoal(-3.0595408714496406, -0.527200532043311, 3.1168493338949776, 1.6578332344506774,
+    //             0.01630129572138721, 0.9703866788252388, -1.4113049358717398);
+    if (height < 0.05) {
+      RCLCPP_ERROR(LOGGER, "Invalid height: %f", height);
+      return;
+    }
+    std::unique_ptr<geometry_msgs::msg::PoseStamped> target_pose(std::make_unique<geometry_msgs::msg::PoseStamped>());
+    target_pose->header.frame_id = "base_link";
+    target_pose->pose.orientation.w = -0.0009229567446489309;
+    target_pose->pose.orientation.x = 0.6656445983517955;
+    target_pose->pose.orientation.y = 0.746190617631904;
+    target_pose->pose.orientation.z = -0.00523681132766913;
+    target_pose->pose.position.x = 0.4647454832180771;
+    target_pose->pose.position.y = -0.03269964959535717;
+    target_pose->pose.position.z = height;
+    Move2Position(target_pose);
+  }
+
+  void Move2Position(const std::unique_ptr<geometry_msgs::msg::PoseStamped>& target) {
+    if (target == nullptr) {
+      RCLCPP_ERROR(LOGGER, "Invalid pose: NULL!");
+      return;
+    }
+    planning_components_ptr_->setGoal((*target), "end_effector_link");
+    if (!Plan2Exe()) {
+      RCLCPP_ERROR(LOGGER, "Failed to move to point, break!");
     }
   }
 
   bool Move2JointGoal(double const joint1, double const joint2, double const joint3,
                     double const joint4, double const joint5, double const joint6,
                     double const joint7) {
+    VisualizePrompt();                        
     auto robot_goal_state = planning_components_ptr_->getStartState();
     robot_goal_state->setJointPositions("joint_1", &joint1);
     robot_goal_state->setJointPositions("joint_2", &joint2);
@@ -108,7 +258,134 @@ class fsr_experiments {
     return Plan2Exe();
   }
 
- private:
+  void Calibrate(const std::string& label) {
+    RCLCPP_INFO(LOGGER, "Start Calibrating... ***************************** ");
+    calibrate_flag_ = true;
+    auto record_request = std::make_shared<fsr_interfaces::srv::RecordForce::Request>();
+    record_request->record = true;
+    record_request->labels = label;
+    record_request->folder = output_dir_;
+    auto record_result = record_force_client_ptr_->async_send_request(record_request);
+    while (!record_force_client_ptr_->wait_for_service(std::chrono::seconds(1))) {
+      if (!rclcpp::ok()) {
+        RCLCPP_ERROR(LOGGER, "Interrupted while waiting for the record force service. Exiting.");
+        break;
+      }
+      RCLCPP_INFO(LOGGER, "record force service not available, waiting again...");
+    }
+    if (record_result.get()->success) {
+      RCLCPP_INFO(LOGGER, "Record force service called! --------------------------------- ");
+    } else {
+      RCLCPP_ERROR(LOGGER, "Failed to call service record_force !!! lease check the connection!");
+    }
+
+    auto request = std::make_shared<fsr_interfaces::srv::Trigger::Request>();
+    request->record_flag = true;
+    request->duration = 5;
+    request->show_flag = false;
+    request->folder = output_dir_;
+    request->labels = label;
+    auto fsr_result = fsr_client_ptr_->async_send_request(request);
+    while (!fsr_client_ptr_->wait_for_service(std::chrono::seconds(1))) {
+      if (!rclcpp::ok()) {
+        RCLCPP_ERROR(LOGGER, "Interrupted while waiting for the fsr service. Exiting.");
+        break;
+      }
+      RCLCPP_INFO(LOGGER, "fsr calibration service not available, waiting again...");
+    }
+    if (fsr_result.get()->success) {
+      RCLCPP_INFO(LOGGER, "Calibration finished! ***************************** ");
+    } else {
+      RCLCPP_ERROR(LOGGER, "Failed to call service fsr_calibration: %s", fsr_result.get()->message.c_str());
+    }
+  }
+
+  bool StopRecording(const std::string& label) {
+    rclcpp::sleep_for(std::chrono::seconds(1));
+    auto record_request = std::make_shared<fsr_interfaces::srv::RecordForce::Request>();
+    record_request->record = false;
+    record_request->labels = label;
+    record_request->folder = output_dir_;
+    auto record_result = record_force_client_ptr_->async_send_request(record_request);
+    while (!record_force_client_ptr_->wait_for_service(std::chrono::seconds(1))) {
+      if (!rclcpp::ok()) {
+        RCLCPP_ERROR(LOGGER, "Interrupted while waiting for the record force service. Exiting.");
+        break;
+      }
+      RCLCPP_INFO(LOGGER, "record force service not available, waiting again...");
+    }
+    if (record_result.get()->success) {
+      RCLCPP_INFO(LOGGER, "Record force service called! --------------------------------- ");
+    } else {
+      RCLCPP_ERROR(LOGGER, "Failed to call service record_force !!! lease check the connection!");
+      return false;
+    }
+
+    auto request = std::make_shared<fsr_interfaces::srv::Trigger::Request>();
+    request->record_flag = false;
+    request->duration = 5;
+    request->show_flag = false;
+    request->folder = output_dir_;
+    request->labels = label;
+    auto fsr_result = fsr_client_ptr_->async_send_request(request);
+    while (!fsr_client_ptr_->wait_for_service(std::chrono::seconds(1))) {
+      if (!rclcpp::ok()) {
+        RCLCPP_ERROR(LOGGER, "Interrupted while waiting for the fsr service. Exiting.");
+        break;
+      }
+      RCLCPP_INFO(LOGGER, "fsr calibration service not available, waiting again...");
+    }
+    if (fsr_result.get()->success) {
+      RCLCPP_INFO(LOGGER, "Stop fsr recording finished! ***************************** ");
+    } else {
+      RCLCPP_ERROR(LOGGER, "Failed to call fsr stop recording service: %s", fsr_result.get()->message.c_str());
+      return false;
+    }
+    return true;
+  }
+
+  void Move2Contact() {
+    auto twist_msg = geometry_msgs::msg::Twist();
+    while (contaction_flag_ == false) {
+      RCLCPP_INFO(LOGGER, "Waiting for connection...");
+      twist_msg.linear.z = 0.002;
+      twist_publisher_->publish(twist_msg);
+      rclcpp::sleep_for(std::chrono::milliseconds(10));
+    }
+    if (contaction_flag_) {
+      twist_msg.linear.z = 0.0;
+      for (size_t i = 0; i < 100; i++) {
+        twist_publisher_->publish(twist_msg);
+        rclcpp::sleep_for(std::chrono::milliseconds(10));
+      }
+      RCLCPP_INFO(LOGGER, "Connection established! ******** Ready for actions ********");
+    }
+  }
+
+  bool SwitchController(const std::vector<std::string>& activate_controllers, const std::vector<std::string>& deactivate_controllers) {
+    auto request = std::make_shared<controller_manager_msgs::srv::SwitchController::Request>();
+    request->activate_controllers = activate_controllers;
+    request->deactivate_controllers = deactivate_controllers;
+    request->strictness = 1;
+    request->activate_asap = true;
+    auto controller_result = controller_manager_ptr_->async_send_request(request);
+    while (!controller_manager_ptr_->wait_for_service(std::chrono::seconds(1))) {
+      if (!rclcpp::ok()) {
+        RCLCPP_ERROR(LOGGER, "Interrupted while waiting for the controller service. Exiting.");
+        break;
+      }
+      RCLCPP_INFO(LOGGER, "controller service not available, waiting again...");
+    }
+    if (controller_result.get()->ok) {
+      RCLCPP_INFO(LOGGER, "Controller switched from '%s' to '%s'! ***************************** ",
+                  deactivate_controllers[0].c_str(), activate_controllers[0].c_str());
+      return true;
+    } else {
+      RCLCPP_ERROR(LOGGER, "Failed to switch controller! :( ***************************** ");
+      return false;
+    }
+  }
+
   bool VisualizePrompt () {
     visual_tools_.prompt("Press 'next' in the RvizVisualToolsGui window to continue the demo");
     visual_tools_.deleteAllMarkers();
@@ -140,12 +417,65 @@ class fsr_experiments {
     }
     return true;
   }
+  void NiForceCallBack(const fsr_interfaces::msg::NiForce & msg) {
+    // RCLCPP_INFO_STREAM(LOGGER, "I heard: '" << msg.timestamp << "' : " << msg.force.x << ", " << msg.force.y << ", " << msg.force.z);
+    // RCLCPP_INFO_STREAM(LOGGER, "I heard: torque : " << msg.torque.x << ", " << msg.torque.y << ", " << msg.torque.z);
+    double force = sqrt(msg.force.z * msg.force.z + msg.force.y * msg.force.y + msg.force.x * msg.force.x);
+    if (calibrate_flag_) {
+      force_z_.emplace_back(msg.force.z);
+      force_ += force;
+      if (force_z_.size() > 5000) {
+        double sum = std::accumulate(force_z_.begin(), force_z_.end(), 0.0);
+        mean_z_ = sum / force_z_.size();
+        force_ /= force_z_.size();
+        force_threshold_ = std::accumulate(force_z_.begin(), force_z_.end(), 0.0,
+                                    [&](double accumulator, double value) {
+                                      return accumulator + (value - mean_z_) * (value - mean_z_);
+                                    });
+        force_threshold_ = std::sqrt(force_threshold_ / force_z_.size());
+        RCLCPP_INFO(LOGGER, "Calibration finished, mean force: %f, std: %f, force: %f", mean_z_, force_threshold_, force_);
+        calibrate_flag_ = false;
+        force_z_.clear();
+        count_force_ = 0;
+      }
+    } 
+    if (!contaction_flag_) {
+      RCLCPP_INFO(LOGGER, "Ni force read: ----------------- : %f, %f", msg.force.z, force);
+      if (msg.force.z < mean_z_ - 3 * force_threshold_) {
+        count_force_++;
+        RCLCPP_INFO(LOGGER, "Contact detected! ************ : %f", msg.force.z);
+        if (count_force_ > 5) {
+          contaction_flag_ = true;
+        }
+      }
+    }
+  }
 
   std::shared_ptr<rclcpp::Node> node_ = nullptr;
   std::shared_ptr<moveit_cpp::MoveItCpp> moveit_cpp_ptr_ = nullptr;
   std::shared_ptr<moveit_cpp::PlanningComponent> planning_components_ptr_ = nullptr;
   moveit_visual_tools::MoveItVisualTools visual_tools_;
   moveit_msgs::msg::MotionPlanRequest planning_query_request_;
+  std::vector<double> force_z_;
+  double mean_z_ = 0.0;
+  double force_ = 0.0;
+  double force_threshold_ = 1.0;
+  int count_force_ = 0;
+  std::unique_ptr<ExpAction> exp_action_= nullptr;
+  std::string output_dir_;
+
+  rclcpp::CallbackGroup::SharedPtr force_callback_group_ = nullptr;
+  inline static bool contaction_flag_ = true;
+  inline static bool calibrate_flag_ = false;
+  rclcpp::CallbackGroup::SharedPtr fsr_callback_group_ = nullptr;
+  rclcpp::CallbackGroup::SharedPtr record_force_callback_group_ = nullptr;
+  rclcpp::CallbackGroup::SharedPtr controller_callback_group_ = nullptr;
+  rclcpp::Client<fsr_interfaces::srv::Trigger>::SharedPtr fsr_client_ptr_;
+  rclcpp::Client<fsr_interfaces::srv::RecordForce>::SharedPtr record_force_client_ptr_;
+  rclcpp::Client<controller_manager_msgs::srv::SwitchController>::SharedPtr controller_manager_ptr_;
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr twist_publisher_;
+  rclcpp::Subscription<fsr_interfaces::msg::NiForce>::SharedPtr force_subscription_;
+  std::string package_share_directory_;
 };
 
 } // namespace fsr_experiments

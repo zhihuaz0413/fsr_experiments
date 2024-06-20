@@ -31,6 +31,9 @@ set(THIS_PACKAGE_INCLUDE_DEPENDS
   rviz_visual_tools
   tf2_geometry_msgs
   tf2_ros
+  fsr_interfaces
+  controller_manager_msgs
+  Protobuf
 )
 
 foreach(Dependency IN ITEMS ${THIS_PACKAGE_INCLUDE_DEPENDS})
@@ -38,11 +41,12 @@ foreach(Dependency IN ITEMS ${THIS_PACKAGE_INCLUDE_DEPENDS})
 endforeach()
 
 include_directories(${THIS_PACKAGE_INCLUDE_DIRS})
+include_directories(${ProtobufIncludePath})
 
-add_executable(fsr_experiments_cpp src/fsr_experiments.hpp src/fsr_experiments.cpp)
+add_executable(fsr_experiments_cpp src/exp_action.hpp src/fsr_experiments.hpp src/fsr_experiments.cpp)
 #Target_include_directories(fsr_experiments PUBLIC include)
 ament_target_dependencies(fsr_experiments_cpp  ${THIS_PACKAGE_INCLUDE_DEPENDS} Boost)
-
+target_link_libraries(fsr_experiments_cpp exp_proto) 
 install(TARGETS fsr_experiments_cpp
   DESTINATION lib/${PROJECT_NAME}
 )
@@ -68,4 +72,5 @@ endif()
 ament_export_dependencies(
   ${THIS_PACKAGE_INCLUDE_DEPENDS}
 )
+add_subdirectory(proto)
 ament_package()
