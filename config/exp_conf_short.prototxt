@@ -1,0 +1,77 @@
+description: "Fsr experiment trials"
+output_dir: "/home/hrg/ws_moveit/data/"
+exp_group {
+  group_name: "short_shape_letters"
+  group_id: 1
+  home_height: 0.23
+  start_height: 0.09
+  object_conf {
+    object_name: "q_rigid_concave"
+    repeat_num: 5
+    actions: "pressing"
+    actions: "precision"
+    actions: "slipping"
+    min_depth: 0.002
+    max_depth: 0.005
+    min_angle: 2.0
+    max_angle: 5.0
+    min_duration: 5.0
+    max_duration: 10.0
+    min_slip_amp: 0.005
+    max_slip_amp: 0.01
+    slip_angle: 10.0
+    sample_rate: 100
+  
+  }
+  object_conf {
+    object_name: "q_rigid_convex"
+    repeat_num: 5
+    actions: "pressing"
+    actions: "precision"
+    actions: "slipping"
+    min_depth: 0.002
+    max_depth: 0.005
+    min_angle: 2.0
+    max_angle: 5.0
+    min_duration: 5.0
+    max_duration: 10.0
+    min_slip_amp: 0.005
+    max_slip_amp: 0.01
+    slip_angle: 10.0
+    sample_rate: 100
+  }
+  object_conf {
+    object_name: "q_rigid_flat"
+    repeat_num: 5
+    actions: "pressing"
+    actions: "precision"
+    actions: "slipping"
+    min_depth: 0.002
+    max_depth: 0.005
+    min_angle: 2.0
+    max_angle: 5.0
+    min_duration: 5.0
+    max_duration: 10.0
+    min_slip_amp: 0.005
+    max_slip_amp: 0.01
+    slip_angle: 10.0
+    sample_rate: 100
+  }
+  object_conf {
+    object_name: "q_rigid_wave"
+    repeat_num: 5
+    actions: "pressing"
+    actions: "precision"
+    actions: "slipping"
+    min_depth: 0.002
+    max_depth: 0.005
+    min_angle: 2.0
+    max_angle: 5.0
+    min_duration: 5.0
+    max_duration: 10.0
+    min_slip_amp: 0.005
+    max_slip_amp: 0.01
+    slip_angle: 10.0
+    sample_rate: 100
+  }
+}

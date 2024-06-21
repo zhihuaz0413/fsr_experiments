@@ -121,27 +121,29 @@ class fsr_experiments {
       for (size_t j = 0; j < static_cast<size_t>(exp_group.object_conf().size()); j++) {
         const auto& object_conf = exp_group.object_conf(j);
         SetupHome(exp_group.home_height());
+        RCLCPP_INFO(LOGGER, "Start Experiment ****************** : %s", object_conf.object_name().c_str());
         VisualizePrompt();
-        RCLCPP_INFO(LOGGER, "Start Experiment : %s", object_conf.object_name().c_str());
         int repeat_num = object_conf.repeat_num();
-        exp_action_ = std::make_unique<ExpAction>(object_conf);
+        exp_action_ = std::make_unique<ExpAction>(object_conf, output_dir_);
         for (int k = 0; k < repeat_num; k++) {
           SetupHome(exp_group.start_height());
-          VisualizePrompt();
+          SavePose(pose_dir_ + object_conf.object_name() + "_prepare_" + std::to_string(k) + ".csv");
+          // VisualizePrompt();
           RCLCPP_INFO(LOGGER, "Start Experiment : %s, repeat: %d/%d ", object_conf.object_name().c_str(), k+1, repeat_num);
           std::string label = object_conf.object_name() + "_" + std::to_string(k);
           Calibrate(label);
           contaction_flag_ = false;
           SwitchController({"twist_controller"}, {"joint_trajectory_controller"});
           Move2Contact();
+          SavePose(pose_dir_ + object_conf.object_name() + "_prepare_" + std::to_string(k) + ".csv");
           RCLCPP_INFO(LOGGER, "Connection established! ******** Ready for actions ********");
-          // VisualizePrompt();
           ExecuteAction(object_conf, k);
           RCLCPP_INFO(LOGGER, "Experiment finished! ******** Ready for next ********");
           SwitchController({"joint_trajectory_controller"}, {"twist_controller"});
           StopRecording(label);
         }
       }
+      SetupHome(exp_group.home_height());
     }
   }
 
@@ -172,7 +174,7 @@ class fsr_experiments {
     return true;
   }
 
-  void ExecuteAction(const ObjectConf& conf, int idx) const {
+  void ExecuteAction(const ObjectConf& conf, int idx) {
     if (exp_action_ == nullptr) {
       RCLCPP_ERROR(LOGGER, "Invalid ExpAction! *****************************");
       return;
@@ -181,30 +183,16 @@ class fsr_experiments {
       RCLCPP_INFO(LOGGER, "Start Action : %s", conf.actions(i).c_str());
       double dt = 1.0 / conf.sample_rate();
       std::vector<std::unique_ptr<geometry_msgs::msg::Twist>> twist;
-      if (conf.actions(i) == "pressing") {
-        if (exp_action_->GeneratePressingTraj(twist, idx)) {
-          for (const auto& twist_msg : twist) {
-            twist_publisher_->publish(*twist_msg);
-            int ms_dt = dt * 1000;
-            rclcpp::sleep_for(std::chrono::milliseconds(ms_dt));
-          }
-        }
-      } else if (conf.actions(i) == "precision") {
-        if (exp_action_->GeneratePrecisionTraj(twist, idx)) {
-          for (const auto& twist_msg : twist) {
-            twist_publisher_->publish(*twist_msg);
-            int ms_dt = dt * 1000;
-            rclcpp::sleep_for(std::chrono::milliseconds(ms_dt));
-          }
-        }
-      } else if (conf.actions(i)  == "slipping") {
-        if (exp_action_->GenerateSlipperyTraj(twist, idx)) {
-          for (const auto& twist_msg : twist) {
-            twist_publisher_->publish(*twist_msg);
-            int ms_dt = dt * 1000;
-            rclcpp::sleep_for(std::chrono::milliseconds(ms_dt));
-          }
-        }
+      if (!exp_action_->GetTrajectory(conf.actions(i), twist, idx)) {
+        RCLCPP_ERROR(LOGGER, "Failed to generate trajectory for action: %s", conf.actions(i).c_str());
+        return;
+      }
+      for (const auto& twist_msg : twist) {
+        twist_publisher_->publish(*twist_msg);
+        SaveCommand(pose_dir_ + conf.object_name() + "_cmd_" + conf.actions(i) + "_" + std::to_string(idx) + ".csv", twist_msg);
+        int ms_dt = dt * 1000;
+        rclcpp::sleep_for(std::chrono::milliseconds(ms_dt));
+        SavePose(pose_dir_ + conf.object_name() + "_pose_" + conf.actions(i) + "_" + std::to_string(idx) + ".csv");
       }
     }
   }
@@ -226,6 +214,10 @@ class fsr_experiments {
     target_pose->pose.position.y = -0.03269964959535717;
     target_pose->pose.position.z = height;
     Move2Position(target_pose);
+    pose_dir_ = output_dir_ + "kinova/";
+    if (!std::filesystem::exists(pose_dir_)) {
+      std::filesystem::create_directories(pose_dir_);
+    }
   }
 
   void Move2Position(const std::unique_ptr<geometry_msgs::msg::PoseStamped>& target) {
@@ -417,6 +409,35 @@ class fsr_experiments {
     }
     return true;
   }
+
+  void SavePose(const std::string& file_name) {
+    auto current_state = moveit_cpp_ptr_->getCurrentState();
+    auto current_pose = current_state->getGlobalLinkTransform("end_effector_link");
+    // const auto& quaternion = current_pose.rotation();
+    auto euler = current_pose.rotation().eulerAngles(0, 1, 2);
+    std::ofstream file(file_name, std::ios::app);
+    // time,pose x,y,z, orientation w,x,y,z, euler x,y,z 
+    if (file.is_open()) {
+      file << node_->get_clock()->now().nanoseconds() << ", ";
+      file << current_pose.translation().x() << ", " << current_pose.translation().y() << ", " << current_pose.translation().z() << ", ";
+      file << (euler[0] * 180 / M_PI) << ", " << (euler[1] * 180 / M_PI) << ", " << (euler[2] * 180 / M_PI) << std::endl;
+      file.close();
+    } else {
+      RCLCPP_ERROR(LOGGER, "Failed to open file: %s", file_name.c_str());
+    }
+  }
+
+  void SaveCommand(const std::string& file_name, const std::unique_ptr<geometry_msgs::msg::Twist>& command) {
+    std::ofstream file(file_name, std::ios::app);
+    if (file.is_open()) {
+      file << node_->get_clock()->now().nanoseconds() << ", " << command->linear.x << ", " << command->linear.y << ", " << command->linear.z << ", ";
+      file << command->angular.x << ", " << command->angular.y << ", " << command->angular.z << std::endl;
+      file.close();
+    } else {
+      RCLCPP_ERROR(LOGGER, "Failed to open file: %s", file_name.c_str());
+    }
+  }
+
   void NiForceCallBack(const fsr_interfaces::msg::NiForce & msg) {
     // RCLCPP_INFO_STREAM(LOGGER, "I heard: '" << msg.timestamp << "' : " << msg.force.x << ", " << msg.force.y << ", " << msg.force.z);
     // RCLCPP_INFO_STREAM(LOGGER, "I heard: torque : " << msg.torque.x << ", " << msg.torque.y << ", " << msg.torque.z);
@@ -440,7 +461,7 @@ class fsr_experiments {
       }
     } 
     if (!contaction_flag_) {
-      RCLCPP_INFO(LOGGER, "Ni force read: ----------------- : %f, %f", msg.force.z, force);
+      // RCLCPP_INFO(LOGGER, "Ni force read: ----------------- : %f, %f", msg.force.z, force);
       if (msg.force.z < mean_z_ - 3 * force_threshold_) {
         count_force_++;
         RCLCPP_INFO(LOGGER, "Contact detected! ************ : %f", msg.force.z);
@@ -463,6 +484,7 @@ class fsr_experiments {
   int count_force_ = 0;
   std::unique_ptr<ExpAction> exp_action_= nullptr;
   std::string output_dir_;
+  std::string pose_dir_;
 
   rclcpp::CallbackGroup::SharedPtr force_callback_group_ = nullptr;
   inline static bool contaction_flag_ = true;

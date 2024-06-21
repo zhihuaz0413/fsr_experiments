@@ -19,8 +19,8 @@ int main(int argc, char** argv) {
   std::thread([&executor]() { executor.spin(); }).detach();
   
   fsr_experiments::fsr_experiments fsr_exp(node);
-  //fsr_exp.Execute("exp_conf.prototxt");
-  fsr_exp.Execute("exp_conf_test.prototxt");
+  //fsr_exp.Execute("exp_conf_tall.prototxt");
+  fsr_exp.Execute("exp_conf_short.prototxt");
   
   RCLCPP_INFO(LOGGER, "Shutting down.");
   rclcpp::shutdown();
