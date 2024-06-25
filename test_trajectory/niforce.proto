@@ -1,0 +1,18 @@
+syntax = "proto3";
+package ni_daqmx;
+
+message Vector3d {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+}
+
+message NiForce {
+  string timestamp = 1;
+  Vector3d force = 2;
+  Vector3d torque = 3;
+}
+
+message MsgForce {
+  repeated NiForce force = 1;
+}

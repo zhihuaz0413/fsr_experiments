@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package pyFSRray;
+
+message FSRData {
+  string value = 1;
+  string timestamp = 2;
+};
+
+message FSRMsg {
+  int32 sensor_id = 1;
+  repeated FSRData fsr_data = 2;
+};
