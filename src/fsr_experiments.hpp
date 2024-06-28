@@ -18,6 +18,8 @@
 
 #include "geometry_msgs/msg/point_stamped.h"
 #include "geometry_msgs/msg/twist.h"
+// #include "tf2_ros/buffer.h"
+// #include "tf2_ros/transform_listener.h"
 
 #include <moveit_visual_tools/moveit_visual_tools.h>
 #include "std_srvs/srv/empty.hpp"
@@ -55,14 +57,12 @@ planning_interface::MotionPlanResponse getShortestSolution(
                                                   [](const planning_interface::MotionPlanResponse& solution_a,
                                                     const planning_interface::MotionPlanResponse& solution_b) {
                                                     // If both solutions were successful, check which path is shorter
-                                                    if (solution_a && solution_b)
-                                                    {
+                                                    if (solution_a && solution_b) {
                                                       return robot_trajectory::pathLength(*solution_a.trajectory) <
                                                             robot_trajectory::pathLength(*solution_b.trajectory);
                                                     }
                                                     // If only solution a is successful, return a
-                                                    else if (solution_a)
-                                                    {
+                                                    else if (solution_a) {
                                                       return true;
                                                     }
                                                     // Else return solution b, either because it is successful or not
@@ -171,6 +171,9 @@ class fsr_experiments {
 
     twist_publisher_ = node_->create_publisher<geometry_msgs::msg::Twist>("twist_controller/commands", 2);
 
+    // tf_buffer_ = std::make_unique<tf2_ros::Buffer>(node_->get_clock());
+    // tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+
     return true;
   }
 
@@ -180,6 +183,7 @@ class fsr_experiments {
       return;
     }
     for (size_t i = 0; i < static_cast<size_t>(conf.actions().size()); i++) {
+      robot_state_ = moveit_cpp_ptr_->getCurrentState();
       RCLCPP_INFO(LOGGER, "Start Action : %s", conf.actions(i).c_str());
       double dt = 1.0 / conf.sample_rate();
       std::vector<std::unique_ptr<geometry_msgs::msg::Twist>> twist;
@@ -192,12 +196,12 @@ class fsr_experiments {
         SaveCommand(pose_dir_ + conf.object_name() + "_cmd_" + conf.actions(i) + "_" + std::to_string(idx) + ".csv", twist_msg);
         int ms_dt = dt * 1000;
         rclcpp::sleep_for(std::chrono::milliseconds(ms_dt));
-        SavePose(pose_dir_ + conf.object_name() + "_pose_" + conf.actions(i) + "_" + std::to_string(idx) + ".csv");
+        SavePose(pose_dir_ + conf.object_name() + "_pose_" + conf.actions(i) + "_" + std::to_string(idx) + ".csv", true);
       }
     }
   }
 
-  void SetupHome (double height = 0.25) {
+  void SetupHome(double height = 0.25) {
     //fsr_exp.Move2JointGoal(-3.0595408714496406, -0.527200532043311, 3.1168493338949776, 1.6578332344506774,
     //             0.01630129572138721, 0.9703866788252388, -1.4113049358717398);
     if (height < 0.05) {
@@ -410,17 +414,22 @@ class fsr_experiments {
     return true;
   }
 
-  void SavePose(const std::string& file_name) {
+  void SavePose(const std::string& file_name, bool in_twist = false) {
     auto current_state = moveit_cpp_ptr_->getCurrentState();
-    auto current_pose = current_state->getGlobalLinkTransform("end_effector_link");
-    // const auto& quaternion = current_pose.rotation();
+    auto current_pose = current_state->getGlobalLinkTransform("tool_frame");
+    if (in_twist) {
+      current_pose = robot_state_->getGlobalLinkTransform("tool_frame").inverse() * current_pose;
+    }
     auto euler = current_pose.rotation().eulerAngles(0, 1, 2);
+    Eigen::Quaterniond quaternion(current_pose.rotation());
+
     std::ofstream file(file_name, std::ios::app);
-    // time,pose x,y,z, orientation w,x,y,z, euler x,y,z 
+    // time,pose x,y,z, orientation w,x,y,z, euler x,y,z
     if (file.is_open()) {
       file << node_->get_clock()->now().nanoseconds() << ", ";
       file << current_pose.translation().x() << ", " << current_pose.translation().y() << ", " << current_pose.translation().z() << ", ";
-      file << (euler[0] * 180 / M_PI) << ", " << (euler[1] * 180 / M_PI) << ", " << (euler[2] * 180 / M_PI) << std::endl;
+      file << (euler[0] * 180 / M_PI) << ", " << (euler[1] * 180 / M_PI) << ", " << (euler[2] * 180 / M_PI) << ", ";
+      file << quaternion.w() << ", " << quaternion.x() << ", " << quaternion.y() << ", " << quaternion.z() << std::endl;
       file.close();
     } else {
       RCLCPP_ERROR(LOGGER, "Failed to open file: %s", file_name.c_str());
@@ -486,6 +495,7 @@ class fsr_experiments {
   std::string output_dir_;
   std::string pose_dir_;
 
+  moveit::core::RobotStatePtr robot_state_ = nullptr;
   rclcpp::CallbackGroup::SharedPtr force_callback_group_ = nullptr;
   inline static bool contaction_flag_ = true;
   inline static bool calibrate_flag_ = false;
@@ -497,6 +507,12 @@ class fsr_experiments {
   rclcpp::Client<controller_manager_msgs::srv::SwitchController>::SharedPtr controller_manager_ptr_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr twist_publisher_;
   rclcpp::Subscription<fsr_interfaces::msg::NiForce>::SharedPtr force_subscription_;
+
+  // std::shared_ptr<tf2_ros::TransformListener> tf_listener_{nullptr};
+  // std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+
+  std::string force_file_;
+
   std::string package_share_directory_;
 };
 
