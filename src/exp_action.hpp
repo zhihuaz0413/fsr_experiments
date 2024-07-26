@@ -70,6 +70,26 @@ class ExpAction {
     }
   }
 
+  bool GenerateJerkMiniTraj(std::vector<std::unique_ptr<geometry_msgs::msg::Twist>>& twist, int idx) {
+    double current = 0.0;
+    double setpoint = depth_[idx];
+    int timefreq = static_cast<int>(duration_[idx] * sample_rate_);
+    twist.reserve(timefreq);
+
+    for (int time = 1; time < timefreq; time++) {
+      double t = static_cast<double>(time) / timefreq;
+      double t2 = t * t;
+      double t3 = t2 * t;
+      double t4 = t3 * t;
+      double t5 = t4 * t;
+
+      double pos = current + (setpoint - current) * (10.0 * t3 - 15.0 * t4 + 6.0 * t5);
+      double vel = sample_rate_ * (1.0 / timefreq) * (setpoint - current) * (30.0 * t2 - 60.0 * t3 + 30.0 * t4);
+      twist.push_back(std::make_unique<geometry_msgs::msg::Twist>());
+      twist.back()->linear.z = vel;
+    }
+  }
+
  private:
   bool GeneratePressingTraj(std::vector<std::unique_ptr<geometry_msgs::msg::Twist>>& twist, int idx) {
     double duration = duration_[idx] * 1.2;
@@ -149,7 +169,6 @@ class ExpAction {
       t += dt_;
     }
     return true;
-
   }
 
   int sample_rate_ = 100;

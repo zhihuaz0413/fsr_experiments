@@ -132,6 +132,7 @@ class fsr_experiments {
           RCLCPP_INFO(LOGGER, "Start Experiment : %s, repeat: %d/%d ", object_conf.object_name().c_str(), k+1, repeat_num);
           std::string label = object_conf.object_name() + "_" + std::to_string(k);
           Calibrate(label);
+          // VisualizePrompt();
           contaction_flag_ = false;
           SwitchController({"twist_controller"}, {"joint_trajectory_controller"});
           Move2Contact();
@@ -214,8 +215,8 @@ class fsr_experiments {
     target_pose->pose.orientation.x = 0.6656445983517955;
     target_pose->pose.orientation.y = 0.746190617631904;
     target_pose->pose.orientation.z = -0.00523681132766913;
-    target_pose->pose.position.x = 0.4647454832180771;
-    target_pose->pose.position.y = -0.03269964959535717;
+    target_pose->pose.position.x = 0.457;
+    target_pose->pose.position.y = 0.0;
     target_pose->pose.position.z = height;
     Move2Position(target_pose);
     pose_dir_ = output_dir_ + "kinova/";
@@ -278,7 +279,7 @@ class fsr_experiments {
     auto request = std::make_shared<fsr_interfaces::srv::Trigger::Request>();
     request->record_flag = true;
     request->duration = 5;
-    request->show_flag = false;
+    request->show_flag = true;
     request->folder = output_dir_;
     request->labels = label;
     auto fsr_result = fsr_client_ptr_->async_send_request(request);
@@ -452,31 +453,32 @@ class fsr_experiments {
     // RCLCPP_INFO_STREAM(LOGGER, "I heard: torque : " << msg.torque.x << ", " << msg.torque.y << ", " << msg.torque.z);
     double force = sqrt(msg.force.z * msg.force.z + msg.force.y * msg.force.y + msg.force.x * msg.force.x);
     if (calibrate_flag_) {
-      force_z_.emplace_back(msg.force.z);
-      force_ += force;
+      force_z_.emplace_back(force);
       if (force_z_.size() > 5000) {
         double sum = std::accumulate(force_z_.begin(), force_z_.end(), 0.0);
         mean_z_ = sum / force_z_.size();
-        force_ /= force_z_.size();
         force_threshold_ = std::accumulate(force_z_.begin(), force_z_.end(), 0.0,
                                     [&](double accumulator, double value) {
                                       return accumulator + (value - mean_z_) * (value - mean_z_);
                                     });
         force_threshold_ = std::sqrt(force_threshold_ / force_z_.size());
-        RCLCPP_INFO(LOGGER, "Calibration finished, mean force: %f, std: %f, force: %f", mean_z_, force_threshold_, force_);
+        RCLCPP_INFO(LOGGER, "Calibration finished, mean force: %f, std: %f, force: %f", mean_z_, force_threshold_, msg.force.z);
         calibrate_flag_ = false;
         force_z_.clear();
         count_force_ = 0;
       }
-    } 
+    }
     if (!contaction_flag_) {
       // RCLCPP_INFO(LOGGER, "Ni force read: ----------------- : %f, %f", msg.force.z, force);
-      if (msg.force.z < mean_z_ - 3 * force_threshold_) {
+      if (fabs(force - mean_z_)  > 4 * force_threshold_ + 0.1) {
         count_force_++;
-        RCLCPP_INFO(LOGGER, "Contact detected! ************ : %f", msg.force.z);
-        if (count_force_ > 5) {
+        RCLCPP_INFO(LOGGER, "Contact detected! ************ : %f", force);
+        if (count_force_ > 15) {
           contaction_flag_ = true;
         }
+      }
+      else {
+        count_force_ = 0;
       }
     }
   }
@@ -488,7 +490,6 @@ class fsr_experiments {
   moveit_msgs::msg::MotionPlanRequest planning_query_request_;
   std::vector<double> force_z_;
   double mean_z_ = 0.0;
-  double force_ = 0.0;
   double force_threshold_ = 1.0;
   int count_force_ = 0;
   std::unique_ptr<ExpAction> exp_action_= nullptr;

@@ -1,76 +1,76 @@
 description: "Fsr experiment trials"
 output_dir: "/home/hrg/ws_moveit/data/"
 exp_group {
-  group_name: "short_shape_letters"
+  group_name: "short_soft_letters_2507"
   group_id: 1
   home_height: 0.23
-  start_height: 0.09
+  start_height: 0.1
   object_conf {
-    object_name: "c_soft_concave"
-    repeat_num: 5
+    object_name: "q_soft_flat_10"
+    repeat_num: 10
     actions: "pressing"
     actions: "precision"
     actions: "slipping"
-    min_depth: 0.002
-    max_depth: 0.005
+    min_depth: 0.003
+    max_depth: 0.006
     min_angle: 2.0
     max_angle: 5.0
     min_duration: 5.0
     max_duration: 10.0
-    min_slip_amp: 0.005
-    max_slip_amp: 0.01
+    min_slip_amp: 0.003
+    max_slip_amp: 0.006
     slip_angle: 10.0
     sample_rate: 100
   
   }
   object_conf {
-    object_name: "c_soft_convex"
-    repeat_num: 5
+    object_name: "q_soft_wave_10"
+    repeat_num: 10
     actions: "pressing"
     actions: "precision"
     actions: "slipping"
-    min_depth: 0.002
-    max_depth: 0.005
+    min_depth: 0.003
+    max_depth: 0.006
     min_angle: 2.0
     max_angle: 5.0
     min_duration: 5.0
     max_duration: 10.0
-    min_slip_amp: 0.005
-    max_slip_amp: 0.01
+    min_slip_amp: 0.003
+    max_slip_amp: 0.006
     slip_angle: 10.0
     sample_rate: 100
   }
   object_conf {
-    object_name: "c_rigid_flat"
-    repeat_num: 5
+    object_name: "q_soft_convex_10"
+    repeat_num: 10
     actions: "pressing"
     actions: "precision"
     actions: "slipping"
-    min_depth: 0.002
-    max_depth: 0.005
+    min_depth: 0.003
+    max_depth: 0.006
     min_angle: 2.0
     max_angle: 5.0
     min_duration: 5.0
     max_duration: 10.0
-    min_slip_amp: 0.005
-    max_slip_amp: 0.01
+    min_slip_amp: 0.003
+    max_slip_amp: 0.006
     slip_angle: 10.0
     sample_rate: 100
   }
   object_conf {
-    object_name: "c_rigid_wave"
-    repeat_num: 5
+    object_name: "q_soft_concave_10"
+    repeat_num: 10
     actions: "pressing"
     actions: "precision"
     actions: "slipping"
-    min_depth: 0.002
-    max_depth: 0.005
+    min_depth: 0.003
+    max_depth: 0.006
     min_angle: 2.0
     max_angle: 5.0
     min_duration: 5.0
     max_duration: 10.0
-    min_slip_amp: 0.005
-    max_slip_amp: 0.01
+    min_slip_amp: 0.003
+    max_slip_amp: 0.006
     slip_angle: 10.0
     sample_rate: 100
   }

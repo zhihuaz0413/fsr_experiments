@@ -1,18 +1,18 @@
 description: "Fsr experiment trials"
 output_dir: "/home/hrg/ws_moveit/data/"
 exp_group {
-  group_name: "short_rigid_letters_2806"
+  group_name: "short_rigid_letters_2507_rigid"
   group_id: 1
   home_height: 0.23
-  start_height: 0.09
+  start_height: 0.1
   object_conf {
-    object_name: "c_rigid_concave"
-    repeat_num: 20
+    object_name: "d_rigid_flat"
+    repeat_num: 10
     actions: "pressing"
     actions: "precision"
     actions: "slipping"
-    min_depth: 0.01
-    max_depth: 0.015
+    min_depth: 0.007
+    max_depth: 0.009
     min_angle: 4.0
     max_angle: 8.0
     min_duration: 5.0
@@ -23,13 +23,13 @@ exp_group {
     sample_rate: 100
   }
   object_conf {
-    object_name: "c_rigid_convex"
-    repeat_num: 20
+    object_name: "d_rigid_wave"
+    repeat_num: 10
     actions: "pressing"
     actions: "precision"
     actions: "slipping"
-    min_depth: 0.01
-    max_depth: 0.015
+    min_depth: 0.007
+    max_depth: 0.009
     min_angle: 4.0
     max_angle: 8.0
     min_duration: 5.0
@@ -40,13 +40,13 @@ exp_group {
     sample_rate: 100
   }
   object_conf {
-    object_name: "c_rigid_flat"
-    repeat_num: 20
+    object_name: "d_rigid_convex"
+    repeat_num: 10
     actions: "pressing"
     actions: "precision"
     actions: "slipping"
-    min_depth: 0.01
-    max_depth: 0.015
+    min_depth: 0.007
+    max_depth: 0.009
     min_angle: 4.0
     max_angle: 8.0
     min_duration: 5.0
@@ -57,13 +57,13 @@ exp_group {
     sample_rate: 100
   }
   object_conf {
-    object_name: "c_rigid_wave"
-    repeat_num: 20
+    object_name: "d_rigid_concave"
+    repeat_num: 10
     actions: "pressing"
     actions: "precision"
     actions: "slipping"
-    min_depth: 0.01
-    max_depth: 0.015
+    min_depth: 0.007
+    max_depth: 0.009
     min_angle: 4.0
     max_angle: 8.0
     min_duration: 5.0
