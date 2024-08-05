@@ -25,6 +25,7 @@
 #include "std_srvs/srv/empty.hpp"
 #include "fsr_interfaces/msg/ni_force.hpp"
 #include "fsr_interfaces/srv/trigger.hpp"
+#include "fsr_interfaces/srv/stop_sig.hpp"
 #include "fsr_interfaces/srv/record_force.hpp"
 #include "controller_manager_msgs/srv/switch_controller.hpp"
 #include "exp_action.hpp"
@@ -88,7 +89,7 @@ class fsr_experiments {
     visual_tools_.deleteAllMarkers();
     visual_tools_.loadRemoteControl();
     Eigen::Isometry3d text_pose = Eigen::Isometry3d::Identity();
-    text_pose.translation().z() = 1.75;
+    text_pose.translation().z() = 1.75; // ??
     visual_tools_.publishText(text_pose, "Starting fsr experiments", rvt::WHITE, rvt::XLARGE);
     visual_tools_.trigger();
     package_share_directory_ = ament_index_cpp::get_package_share_directory("fsr_experiments") + "/config/";
@@ -152,6 +153,7 @@ class fsr_experiments {
    bool Initialize() {
     RCLCPP_INFO(LOGGER, "Initialize MoveItCpp");
     force_callback_group_ = node_->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+    stop_callback_group_ = node_->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
     fsr_callback_group_ = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
     controller_callback_group_ = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
     record_force_callback_group_ = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
@@ -164,6 +166,10 @@ class fsr_experiments {
 
     fsr_client_ptr_ = node_->create_client<fsr_interfaces::srv::Trigger>("trigger_recorder", rmw_qos_profile_services_default,
                                                                 fsr_callback_group_);
+    stop_sig_service_ = node_->create_service<fsr_interfaces::srv::StopSig>("stop_signal", 
+                                                                std::bind(&fsr_experiments::StopMoving,
+                                                                this, std::placeholders::_1, std::placeholders::_2), 
+                                                                rmw_qos_profile_services_default, stop_callback_group_);
 
     record_force_client_ptr_ = node_->create_client<fsr_interfaces::srv::RecordForce>("record_force", rmw_qos_profile_services_default,
                                                                 record_force_callback_group_);                                                        
@@ -176,6 +182,12 @@ class fsr_experiments {
     // tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
     return true;
+  }
+
+  void StopMoving(const std::shared_ptr<fsr_interfaces::srv::StopSig::Request> request, 
+                  std::shared_ptr<fsr_interfaces::srv::StopSig::Response> response) {
+    RCLCPP_INFO(LOGGER, "Stop moving! *****************************:%ld", request->mean_val);
+    contaction_flag_ = true;
   }
 
   void ExecuteAction(const ObjectConf& conf, int idx) {
@@ -198,6 +210,7 @@ class fsr_experiments {
         int ms_dt = dt * 1000;
         rclcpp::sleep_for(std::chrono::milliseconds(ms_dt));
         SavePose(pose_dir_ + conf.object_name() + "_pose_" + conf.actions(i) + "_" + std::to_string(idx) + ".csv", true);
+        // RCLCPP_INFO(LOGGER, "twist z: %f", twist_msg->linear.z);
       }
     }
   }
@@ -211,12 +224,12 @@ class fsr_experiments {
     }
     std::unique_ptr<geometry_msgs::msg::PoseStamped> target_pose(std::make_unique<geometry_msgs::msg::PoseStamped>());
     target_pose->header.frame_id = "base_link";
-    target_pose->pose.orientation.w = -0.0009229567446489309;
-    target_pose->pose.orientation.x = 0.6656445983517955;
-    target_pose->pose.orientation.y = 0.746190617631904;
-    target_pose->pose.orientation.z = -0.00523681132766913;
-    target_pose->pose.position.x = 0.457;
-    target_pose->pose.position.y = 0.0;
+    target_pose->pose.orientation.w = 0.003;
+    target_pose->pose.orientation.x = 0.689;
+    target_pose->pose.orientation.y = 0.725;
+    target_pose->pose.orientation.z = -0.004;
+    target_pose->pose.position.x = 0.48;
+    target_pose->pose.position.y = 0.017;
     target_pose->pose.position.z = height;
     Move2Position(target_pose);
     pose_dir_ = output_dir_ + "kinova/";
@@ -344,7 +357,7 @@ class fsr_experiments {
   void Move2Contact() {
     auto twist_msg = geometry_msgs::msg::Twist();
     while (contaction_flag_ == false) {
-      RCLCPP_INFO(LOGGER, "Waiting for connection...");
+      // RCLCPP_INFO(LOGGER, "Waiting for connection...");
       twist_msg.linear.z = 0.002;
       twist_publisher_->publish(twist_msg);
       rclcpp::sleep_for(std::chrono::milliseconds(10));
@@ -469,11 +482,11 @@ class fsr_experiments {
       }
     }
     if (!contaction_flag_) {
-      // RCLCPP_INFO(LOGGER, "Ni force read: ----------------- : %f, %f", msg.force.z, force);
-      if (fabs(force - mean_z_)  > 4 * force_threshold_ + 0.1) {
+      //RCLCPP_INFO(LOGGER, "Ni force read: ----------------- : %f, %f", force, fabs(force - mean_z_));
+      if (fabs(force - mean_z_)  > 17 * force_threshold_ + 2.5) {
         count_force_++;
-        RCLCPP_INFO(LOGGER, "Contact detected! ************ : %f", force);
-        if (count_force_ > 15) {
+        RCLCPP_INFO(LOGGER, "Extreme Contact detected! ************ : %f", force);
+        if (count_force_ > 20) {
           contaction_flag_ = true;
         }
       }
@@ -503,7 +516,9 @@ class fsr_experiments {
   rclcpp::CallbackGroup::SharedPtr fsr_callback_group_ = nullptr;
   rclcpp::CallbackGroup::SharedPtr record_force_callback_group_ = nullptr;
   rclcpp::CallbackGroup::SharedPtr controller_callback_group_ = nullptr;
+  rclcpp::CallbackGroup::SharedPtr stop_callback_group_ = nullptr;
   rclcpp::Client<fsr_interfaces::srv::Trigger>::SharedPtr fsr_client_ptr_;
+  rclcpp::Service<fsr_interfaces::srv::StopSig>::SharedPtr stop_sig_service_;
   rclcpp::Client<fsr_interfaces::srv::RecordForce>::SharedPtr record_force_client_ptr_;
   rclcpp::Client<controller_manager_msgs::srv::SwitchController>::SharedPtr controller_manager_ptr_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr twist_publisher_;

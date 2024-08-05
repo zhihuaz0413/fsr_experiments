@@ -13,8 +13,16 @@ message ObjectConf {
   double max_duration = 9;
   double min_slip_amp = 10;
   double max_slip_amp = 11;
-  double slip_angle = 12;
-  int32 sample_rate = 13;
+  double min_slip_angle = 12;
+  double max_slip_angle = 13;
+  int32 sample_rate = 14;
+  double min_freq_pressing = 15;
+  double max_freq_pressing = 16;
+  double min_freq_slipping = 17;
+  double max_freq_slipping = 18;
+  double min_freq_precision = 20;
+  double max_freq_precision = 21;
+  double duration = 22;
 }
 
 message ExpGroupConf {

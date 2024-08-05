@@ -8,8 +8,8 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 
 # Common cmake code applied to all moveit packages
-find_package(moveit_common REQUIRED)
-moveit_package()
+#find_package(moveit_common REQUIRED)
+#moveit_package()
 
 set(THIS_PACKAGE_INCLUDE_DIRS
   doc/interactivity/include
@@ -23,7 +23,6 @@ set(THIS_PACKAGE_INCLUDE_DEPENDS
   moveit_msgs
   moveit_ros_planning
   moveit_ros_planning_interface
-  moveit_servo
   moveit_visual_tools
   rclcpp
   rclcpp_action

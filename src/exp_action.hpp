@@ -25,34 +25,60 @@ class ExpAction {
     actions_.assign(object.actions().begin(), object.actions().end());
     sample_rate_ = object.sample_rate();
     dt_ = 1.0 / sample_rate_;
-    slip_angle_ = object.slip_angle();
-    std::random_device rndsource;
-    std::minstd_rand rndgen(rndsource());
-    std::uniform_real_distribution<double> rand_depth(object.min_depth(), object.max_depth());
-    std::uniform_real_distribution<double> rand_duration(object.min_duration(), object.max_duration());
-    std::uniform_real_distribution<double> rand_angle(object.min_angle(), object.max_angle());
-    std::uniform_real_distribution<double> rand_slip_amp(object.min_slip_amp(), object.max_slip_amp());
-    depth_.resize(object.repeat_num());
-    duration_.resize(object.repeat_num());
-    angle_.resize(object.repeat_num());
-    slip_amp_.resize(object.repeat_num());
-    for (int i = 0; i < object.repeat_num(); i++) {
-      duration_[i] = rand_duration(rndgen);
-      depth_[i] = rand_depth(rndgen);
-      angle_[i] = rand_angle(rndgen);
-      slip_amp_[i] = rand_slip_amp(rndgen);
+    duration_ = object.duration();
+    double freq_step = (object.max_freq_pressing() - object.min_freq_pressing()) / 3.f;
+    pressing_freq_.reserve(4);
+    for (int i = 0; i < 4; i++) {
+      double frequency = object.min_freq_pressing() + i * freq_step;
+      pressing_freq_.emplace_back(frequency);
     }
-    std::string file_name = path + object.object_name() + ".csv";
-    std::ofstream ofs(file_name);
-    if (!ofs.is_open()) {
-      RCLCPP_ERROR(LOGGER, "Failed to open file: %s", file_name.c_str());
-    } else {
-      ofs << "duration,depth,angle,slip_amp,slip_angle" << std::endl;
-      for (int i = 0; i < object.repeat_num(); i++) {
-        ofs << duration_[i] << "," << depth_[i] << "," << angle_[i] << "," << slip_amp_[i] << "," << slip_angle_ << std::endl;
-      }
-      ofs.close();
+
+    double depth_step = (object.max_depth() - object.min_depth()) / 3.f;
+    for (int i = 0; i < 4; i++) {
+      double depth = object.min_depth() + i * depth_step;
+      depth_.emplace_back(depth);
     }
+
+    freq_step = (object.max_freq_precision() - object.min_freq_precision()) / 3.f;
+    precision_freq_.reserve(4);
+    for (int i = 0; i < 4; i++) {
+      double frequency = object.min_freq_precision() + i * freq_step;
+      precision_freq_.emplace_back(frequency);
+    }
+
+    double angle_step = (object.max_angle() - object.min_angle()) / 3.f;
+    angle_.reserve(4);
+    for (int i = 0; i < 4; i++) {
+      double angle = object.min_angle() + i * angle_step;
+      angle_.emplace_back(angle);
+    }
+
+    freq_step = (object.max_freq_slipping() - object.min_freq_slipping()) / 3.f;
+    for (int i = 0; i < 4; i++) {
+      double frequency = object.min_freq_slipping() + i * freq_step;
+      slip_freq_.emplace_back(frequency);
+    }
+    
+    angle_step = (object.max_slip_angle() - object.min_slip_angle()) / 3.f;
+    double amp_step = (object.max_slip_amp() - object.min_slip_amp()) / 3.f;
+    slip_params_.reserve(4);
+    for (int i = 0; i < 4; i++) {
+      double angle = object.min_angle() + i * angle_step;
+      double amp = object.min_slip_amp() + i * amp_step;
+      slip_params_.emplace_back(std::make_pair(angle, amp));
+    }
+
+    // std::string file_name = path + object.object_name() + ".csv";
+    // std::ofstream ofs(file_name);
+    // if (!ofs.is_open()) {
+    //   RCLCPP_ERROR(LOGGER, "Failed to open file: %s", file_name.c_str());
+    // } else {
+    //   ofs << "duration,depth,angle,slip_amp,slip_angle" << std::endl;
+    //   for (int i = 0; i < object.repeat_num(); i++) {
+    //     ofs << duration_ << "," << depth_[i] << "," << angle_[i] << "," << slip_amp_[i] << "," << slip_angle_ << std::endl;
+    //   }
+    //   ofs.close();
+    // }
   }
 
   virtual ~ExpAction() = default;
@@ -70,62 +96,50 @@ class ExpAction {
     }
   }
 
-  bool GenerateJerkMiniTraj(std::vector<std::unique_ptr<geometry_msgs::msg::Twist>>& twist, int idx) {
-    double current = 0.0;
-    double setpoint = depth_[idx];
-    int timefreq = static_cast<int>(duration_[idx] * sample_rate_);
-    twist.reserve(timefreq);
-
-    for (int time = 1; time < timefreq; time++) {
-      double t = static_cast<double>(time) / timefreq;
-      double t2 = t * t;
-      double t3 = t2 * t;
-      double t4 = t3 * t;
-      double t5 = t4 * t;
-
-      double pos = current + (setpoint - current) * (10.0 * t3 - 15.0 * t4 + 6.0 * t5);
-      double vel = sample_rate_ * (1.0 / timefreq) * (setpoint - current) * (30.0 * t2 - 60.0 * t3 + 30.0 * t4);
-      twist.push_back(std::make_unique<geometry_msgs::msg::Twist>());
-      twist.back()->linear.z = vel;
-    }
-  }
-
  private:
   bool GeneratePressingTraj(std::vector<std::unique_ptr<geometry_msgs::msg::Twist>>& twist, int idx) {
-    double duration = duration_[idx] * 1.2;
-    int num_samples = duration * sample_rate_;
+    int num_samples = duration_ * sample_rate_;
     double t = 0.0;
     t_.resize(num_samples);
     z_.resize(num_samples);
     dz_.resize(num_samples);
     twist.resize(num_samples);
+    int idx_freq = idx % pressing_freq_.size();
+    int idx_depth = idx / pressing_freq_.size();
 
-    RCLCPP_INFO(LOGGER, "%d Pressing amp: %f", idx, depth_[idx]);
+    double frequency = pressing_freq_[idx_freq];
+    double depth = depth_[idx_depth];
+    RCLCPP_INFO(LOGGER, "freq: %f Pressing amp: %f", frequency, depth);
     for (int i = 0; i < num_samples; i++) {
       t_[i] = t;
-      z_[i] = depth_[idx] * 0.5 * std::cos(2.0 * M_PI * t / duration_[idx]);
-      dz_[i] = - M_PI * depth_[idx]  / duration_[idx] * std::sin(2.0 * M_PI * t / duration_[idx]);
+      z_[i] = depth * 0.5 * std::cos(2.0 * M_PI * frequency * t);
+      dz_[i] = -depth * M_PI * frequency * std::sin(2.0 * M_PI * frequency * t);
       twist[i] = std::make_unique<geometry_msgs::msg::Twist>();
-      twist[i]->linear.z = -dz_[i];
+      twist[i]->linear.z = dz_[i];
       t += dt_;
     }
     return true;
   }
 
   bool GeneratePrecisionTraj(std::vector<std::unique_ptr<geometry_msgs::msg::Twist>>& twist, int idx) {
-    double duration = duration_[idx] * 1.5;
+    int idx_freq = idx % precision_freq_.size();
+    int idx_angle = idx / precision_freq_.size();
+    double frequency = precision_freq_[idx_freq];
+    double angle = angle_[idx_angle];
+    double period = 1.0 / frequency;
+    double duration = duration_ + period * 0.5;
     int num_samples = duration * sample_rate_;
     double t = 0.0;
     t_.resize(num_samples);
     twist.resize(num_samples);
-    RCLCPP_INFO(LOGGER, "%d Rotation amp: %f", idx, angle_[idx]);
+    RCLCPP_INFO(LOGGER, "freq: %f Rotation amp: %f", frequency, angle);
     for (int i = 0; i < num_samples; i++) {
       t_[i] = t;
       twist[i] = std::make_unique<geometry_msgs::msg::Twist>();
       // theta_x[i] = angle_[idx] * std::sin(2.0 * M_PI * t / period);
-      twist[i]->angular.x = angle_[idx] * 2.0 * M_PI / duration_[idx]  * std::cos(2.0 * M_PI * t / duration_[idx] );
-      if (i > num_samples / 6 && i < num_samples / 6 * 5) {
-        twist[i]->angular.y = angle_[idx] * 2.0 * M_PI / duration_[idx]  * std::cos(2.0 * M_PI * t / duration_[idx]  - M_PI / 2);
+      twist[i]->angular.x = angle * 2.0 * M_PI * frequency * std::cos(2.0 * M_PI * frequency * t);
+      if (i > sample_rate_ * period / 4 && i < (num_samples - sample_rate_ * period / 4)) {
+        twist[i]->angular.y = angle * 2.0 * M_PI * frequency  * std::cos(2.0 * M_PI * frequency * t  - M_PI / 2);
         // theta_y[i] = angle_[idx] * std::sin(2.0 * M_PI * t / period - M_PI / 2);
       } else {
         twist[i]->angular.y = 0.0;
@@ -137,35 +151,41 @@ class ExpAction {
   }
 
   bool GenerateSlipperyTraj(std::vector<std::unique_ptr<geometry_msgs::msg::Twist>>& twist, int idx) {
-    double duration = duration_[idx];
+    double idx_freq = idx % slip_freq_.size();
+    double idx_params = idx / slip_freq_.size();
+    double frequency = slip_freq_[idx_freq];
+    double slip_angle = slip_params_[idx_params].first;
+    double slip_amp = slip_params_[idx_params].second;
+    
+    double duration = duration_;
     int num_samples = duration * sample_rate_;
     double t = 0.0;
     t_.resize(num_samples * 3);
     twist.resize(num_samples * 3);
 
-    RCLCPP_INFO(LOGGER, "%d Slipppery amp: %f", idx, slip_amp_[idx]);
+    RCLCPP_INFO(LOGGER, "freq: %f Slipppery amp: %f Slip angle %f", frequency, slip_amp, slip_angle);
     std::vector<double> slip_x(num_samples);
     std::vector<double> slip_y(num_samples);
     std::vector<double> slip_theta(num_samples);
     for (int i = 0; i < num_samples; i++) {
       t_[i] = t;
       twist[i] = std::make_unique<geometry_msgs::msg::Twist>();
-      slip_x[i] = slip_amp_[idx] * std::sin(2.0 * M_PI * t / duration_[idx]);
-      twist[i]->linear.x = slip_amp_[idx] * 2.0 * M_PI / duration_[idx] * std::cos(2.0 * M_PI * t / duration_[idx]);
+      slip_x[i] = slip_amp * std::sin(2.0 * M_PI * t * frequency);
+      twist[i]->linear.x = slip_amp * 2.0 * M_PI * frequency* std::cos(2.0 * M_PI * t * frequency);
       t += dt_;
     }
     for (int i = 0; i < num_samples; i++) {
       t_[i + num_samples] = t;
       twist[i + num_samples] = std::make_unique<geometry_msgs::msg::Twist>();
-      slip_y[i] = slip_amp_[idx] * std::sin(2.0 * M_PI * t / duration_[idx]);
-      twist[i + num_samples]->linear.y = slip_amp_[idx] * 2.0 * M_PI / duration_[idx] * std::cos(2.0 * M_PI * t / duration_[idx]);
+      slip_y[i] = slip_amp * std::sin(2.0 * M_PI * t * frequency);
+      twist[i + num_samples]->linear.y = slip_amp * 2.0 * M_PI * frequency * std::cos(2.0 * M_PI * t * frequency);
       t += dt_;
     }
     for (int i = 0; i < num_samples; i++) {
       t_[i + num_samples * 2] = t;
       twist[i + num_samples * 2] = std::make_unique<geometry_msgs::msg::Twist>();
-      slip_theta[i] = slip_angle_ * std::sin(2.0 * M_PI * t / duration_[idx]);
-      twist[i + num_samples * 2]->angular.z = slip_angle_ * 2.0 * M_PI / duration_[idx] * std::cos(2.0 * M_PI * t / duration_[idx]);
+      slip_theta[i] = slip_angle * std::sin(2.0 * M_PI * t * frequency);
+      twist[i + num_samples * 2]->angular.z = slip_angle * 2.0 * M_PI  * frequency * std::cos(2.0 * M_PI * t * frequency);
       t += dt_;
     }
     return true;
@@ -178,12 +198,16 @@ class ExpAction {
   std::vector<double> dz_;
 
   std::vector<std::string> actions_;
-  double slip_angle_ = 0.0;
-
-  std::vector<double> duration_;
+  std::vector<std::pair<double, double>> slip_params_; // slip angle and amplitude
+  
   std::vector<double> depth_;
   std::vector<double> angle_;
-  std::vector<double> slip_amp_;
+  std::vector<double> pressing_freq_;
+  std::vector<double> precision_freq_;
+  std::vector<double> slip_freq_;
+
+
+  double duration_ = 0.0;
 
 };
     
