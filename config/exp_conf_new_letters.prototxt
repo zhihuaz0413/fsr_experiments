@@ -1,12 +1,12 @@
 description: "Fsr experiment trials"
 output_dir: "/media/hrg/New Volume/data/"
 exp_group {
-  group_name: "skin1_model1_0508_f1"
+  group_name: "skin1_letters_1608_test"
   group_id: 1
   home_height: 0.23
-  start_height: 0.13
+  start_height: 0.1
   object_conf {
-    object_name: "f10_a20_s10"
+    object_name: "square_large_s100"
     repeat_num: 16
     actions: "pressing"
     actions: "precision"
@@ -21,7 +21,7 @@ exp_group {
     max_slip_angle: 6.0
     sample_rate: 100
     min_freq_pressing: 0.2
-    max_freq_pressing: 1.0
+    max_freq_pressing: 0.8
     min_freq_slipping: 0.2
     max_freq_slipping: 0.5
     min_freq_precision: 0.2
@@ -29,7 +29,7 @@ exp_group {
     duration: 10.0
   }
   object_conf {
-    object_name: "f10_a10_s50"
+    object_name: "star_medium_s100"
     repeat_num: 16
     actions: "pressing"
     actions: "precision"
@@ -44,7 +44,7 @@ exp_group {
     max_slip_angle: 6.0
     sample_rate: 100
     min_freq_pressing: 0.2
-    max_freq_pressing: 1.0
+    max_freq_pressing: 0.8
     min_freq_slipping: 0.2
     max_freq_slipping: 0.5
     min_freq_precision: 0.2

@@ -73,9 +73,14 @@ class ExpAction {
     // if (!ofs.is_open()) {
     //   RCLCPP_ERROR(LOGGER, "Failed to open file: %s", file_name.c_str());
     // } else {
-    //   ofs << "duration,depth,angle,slip_amp,slip_angle" << std::endl;
+    //   ofs << "duration,sample_rate,depth,angle,slip_amp,slip_angle" << std::endl;
     //   for (int i = 0; i < object.repeat_num(); i++) {
-    //     ofs << duration_ << "," << depth_[i] << "," << angle_[i] << "," << slip_amp_[i] << "," << slip_angle_ << std::endl;
+    //     int idx_freq = idx % pressing_freq_.size();
+    //     int idx_depth = idx / pressing_freq_.size();
+    //     double frequency = pressing_freq_[idx_freq];
+    //     double depth = depth_[idx_depth];
+
+    //     ofs << duration_, << ", " << sample_rate_ << "," << depth << "," << angle_[i] << "," << slip_amp_[i] << "," << slip_angle_ << std::endl;
     //   }
     //   ofs.close();
     // }
@@ -115,7 +120,7 @@ class ExpAction {
       z_[i] = depth * 0.5 * std::cos(2.0 * M_PI * frequency * t);
       dz_[i] = -depth * M_PI * frequency * std::sin(2.0 * M_PI * frequency * t);
       twist[i] = std::make_unique<geometry_msgs::msg::Twist>();
-      twist[i]->linear.z = dz_[i];
+      twist[i]->linear.z = -dz_[i];
       t += dt_;
     }
     return true;

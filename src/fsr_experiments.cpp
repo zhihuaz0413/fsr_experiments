@@ -20,7 +20,7 @@ int main(int argc, char** argv) {
   
   fsr_experiments::fsr_experiments fsr_exp(node);
   //fsr_exp.Execute("exp_conf_tall.prototxt");
-  fsr_exp.Execute("exp_conf_soft_object.prototxt");
+  fsr_exp.Execute("exp_conf_new_letters.prototxt");
   
   RCLCPP_INFO(LOGGER, "Shutting down.");
   rclcpp::shutdown();
