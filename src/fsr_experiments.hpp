@@ -224,12 +224,12 @@ class fsr_experiments {
     }
     std::unique_ptr<geometry_msgs::msg::PoseStamped> target_pose(std::make_unique<geometry_msgs::msg::PoseStamped>());
     target_pose->header.frame_id = "base_link";
-    target_pose->pose.orientation.w = -0.008;
-    target_pose->pose.orientation.x = 0.690;
-    target_pose->pose.orientation.y = 0.723;
-    target_pose->pose.orientation.z = -0.034;
-    target_pose->pose.position.x = 0.449;
-    target_pose->pose.position.y = -0.004;
+    target_pose->pose.orientation.w = -0.005;
+    target_pose->pose.orientation.x = 0.685;
+    target_pose->pose.orientation.y = 0.728;
+    target_pose->pose.orientation.z = -0.015;
+    target_pose->pose.position.x = 0.442;
+    target_pose->pose.position.y = 0.017;
     target_pose->pose.position.z = height;
     Move2Position(target_pose);
     pose_dir_ = output_dir_ + "kinova/";

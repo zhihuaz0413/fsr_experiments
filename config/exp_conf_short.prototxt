@@ -1,12 +1,12 @@
 description: "Fsr experiment trials"
 output_dir: "/home/hrg/ws_moveit/data/"
 exp_group {
-  group_name: "short_letters_2008_soft"
+  group_name: "short_letters_2808_soft"
   group_id: 1
   home_height: 0.23
   start_height: 0.1
   object_conf {
-    object_name: "c_flat_s10"
+    object_name: "c_wave_s30"
     repeat_num: 20
     actions: "pressing"
     actions: "precision"
@@ -23,7 +23,7 @@ exp_group {
     sample_rate: 100
   }
   object_conf {
-    object_name: "c_wave_s10"
+    object_name: "c_convex_s30"
     repeat_num: 20
     actions: "pressing"
     actions: "precision"
@@ -40,24 +40,7 @@ exp_group {
     sample_rate: 100
   }
   object_conf {
-    object_name: "c_convex_s10"
-    repeat_num: 20
-    actions: "pressing"
-    actions: "precision"
-    actions: "slipping"
-    min_depth: 0.007
-    max_depth: 0.009
-    min_angle: 4.0
-    max_angle: 8.0
-    min_duration: 5.0
-    max_duration: 10.0
-    min_slip_amp: 0.003
-    max_slip_amp: 0.007
-    slip_angle: 10.0
-    sample_rate: 100
-  }
-  object_conf {
-    object_name: "c_concave_s10"
+    object_name: "c_concave_s30"
     repeat_num: 20
     actions: "pressing"
     actions: "precision"
